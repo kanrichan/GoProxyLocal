@@ -34,17 +34,17 @@ func main() {
 			log.Printf("<- %s", uri)
 			switch {
 			case strings.HasSuffix(uri, "@v/list"):
-				repo := strings.Split(uri, `/@v`)[0]
+				repo := strings.Split(uri, "/@v")[0]
 				list, err := version(repo[1:])
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
-					w.Write([]byte(fmt.Sprintf(`not found: module %s: no matching versions for query "latest"`, repo[1:])))
+					w.Write([]byte(fmt.Sprintf(`not found: module %s: no matching versions for query "v/list"`, repo[1:])))
 					return
 				}
 				w.Write([]byte(strings.Join(list, "\n")))
 				return
 			case strings.HasSuffix(uri, "/@latest"):
-				repo := strings.Split(uri, `/@latest`)[0]
+				repo := strings.Split(uri, "/@latest")[0]
 				list, err := version(repo[1:])
 				if err != nil {
 					w.WriteHeader(http.StatusNotFound)
