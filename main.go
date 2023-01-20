@@ -1,85 +1,107 @@
 package main
 
 import (
-	"errors"
+	"bufio"
+	"bytes"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 )
 
-var BASE_DIR string
+var CACHE_DIR string
 var HOST = "127.0.0.1"
-var PORT = 8080
+var PORT = 9988
+
+var seq = NewSequence()
 
 func init() {
 	gopath, _ := os.LookupEnv("GOPATH")
 	if gopath == "" {
 		panic("the env GOPATH is empty, please set it and rerun again")
 	}
-	BASE_DIR = strings.ReplaceAll(gopath, "\\", "/") + "/pkg/mod"
-	log.Printf("Initialization completed, BASE_DIR is %s\n", BASE_DIR)
+	log.Printf("Initialization completed, GOPATH is %s\n", gopath)
+	CACHE_DIR = strings.ReplaceAll(gopath, "\\", "/") + "/pkg/mod/cache/download"
 	log.Printf("Please set GOPROXY to http://%s:%d\n", HOST, PORT)
 }
 
 func main() {
-	http.ListenAndServe(fmt.Sprintf("%s:%d", HOST, PORT),
+	err := http.ListenAndServe(fmt.Sprintf("%s:%d", HOST, PORT),
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			uri, err := url.PathUnescape(r.RequestURI)
 			if err != nil {
 				panic(err)
 			}
-			log.Printf("<- %s", uri)
+			var buffer = bufio.NewWriter(os.Stderr)
+			defer buffer.Flush()
+			logger := log.New(buffer, seq.Next()+"-", 1|2)
+			logger.Printf("<- %s", uri)
+			var resp = make([]byte, 0)
 			switch {
-			case strings.HasSuffix(uri, "@v/list"):
-				repo := strings.Split(uri, "/@v")[0]
-				list, err := version(repo[1:])
-				if err != nil {
+			case strings.Contains(uri, "/@v"):
+				if !strings.HasSuffix(uri, "list") && !strings.HasSuffix(uri, "info") &&
+					!strings.HasSuffix(uri, "mod") && !strings.HasSuffix(uri, "zip") {
 					w.WriteHeader(http.StatusNotFound)
-					w.Write([]byte(fmt.Sprintf(`not found: module %s: no matching versions for query "v/list"`, repo[1:])))
-					return
+					break
 				}
-				w.Write([]byte(strings.Join(list, "\n")))
-				return
+				var dest = CACHE_DIR + uri
+				if info, err := os.Stat(dest); err != nil || info == nil {
+					w.WriteHeader(http.StatusNotFound)
+					resp = []byte("not found")
+					break
+				}
+				resp, err = os.ReadFile(dest)
+				if err != nil {
+					panic(err)
+				}
 			case strings.HasSuffix(uri, "/@latest"):
-				repo := strings.Split(uri, "/@latest")[0]
-				list, err := version(repo[1:])
-				if err != nil {
+				var dest = CACHE_DIR + strings.TrimSuffix(uri, "/@latest") + "/@v/list"
+				if info, err := os.Stat(dest); err != nil || info == nil {
 					w.WriteHeader(http.StatusNotFound)
-					w.Write([]byte(fmt.Sprintf(`not found: module %s: no matching versions for query "latest"`, repo[1:])))
-					return
+					resp = []byte("not found")
+					break
 				}
-				w.Write([]byte(fmt.Sprintf(`{"Version":"%s","Time":"2021-10-08T14:36:13Z"}`, list[len(list)-1])))
-				return
+				b, err := os.ReadFile(dest)
+				if err != nil {
+					panic(err)
+				}
+				bs := bytes.Split(bytes.TrimSuffix(b, []byte{'\n'}), []byte{'\n'})
+				resp = bs[len(bs)-1]
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+			w.Write(resp)
+			if len(resp) > 512 {
+				logger.Printf("-> %s", "blob")
+			} else {
+				logger.Printf("-> %s", strings.ReplaceAll(string(resp), "\n", " "))
 			}
 		}),
 	)
+	if err != nil {
+		panic(err)
+	}
 }
 
-func version(module string) ([]string, error) {
-	repoelem := strings.Split(module, `/`)
-	parent := strings.Join(repoelem[:len(repoelem)-1], `/`)
-	name := repoelem[len(repoelem)-1]
-	fd, err := os.ReadDir(BASE_DIR + "/" + parent)
-	if err == nil {
-		var list = make([]string, 0)
-		for i := range fd {
-			if !fd[i].IsDir() {
-				continue
-			}
-			if !strings.HasPrefix(fd[i].Name(), name) {
-				continue
-			}
-			if !strings.Contains(fd[i].Name(), "@") {
-				continue
-			}
-			list = append(list, strings.Split(fd[i].Name(), "@")[1])
-		}
-		if len(list) > 0 {
-			return list, nil
-		}
+type sequence struct {
+	sync.Mutex
+	id int64
+}
+
+func NewSequence() *sequence {
+	return &sequence{}
+}
+
+func (seq *sequence) Next() string {
+	seq.Lock()
+	defer seq.Unlock()
+	if seq.id < 99999999 {
+		seq.id++
+	} else {
+		seq.id = 1
 	}
-	return nil, errors.New("not found")
+	return fmt.Sprintf("%08d", seq.id)
 }
