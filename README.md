@@ -5,3 +5,7 @@
 ### 使用方法
 1. 使用命令 `go run main.go` 启动 `Cheater`
 2. 使用命令 `go env -w GOPROXY=http://localhost:9988,direct`
+
+### 建议
+1. 使用命令 `go env -w GOSUMDB=off` 关闭 `GOSUM`
+2. 若拉取依赖时缓存无对应版本，可以在 `go.mod` 用 `replace` 替换相似版本
