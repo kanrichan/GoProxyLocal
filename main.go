@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,6 +16,7 @@ var HOST = "127.0.0.1"
 var PORT = 9988
 
 var seq = NewSequence()
+var notFound = []byte("not found")
 
 func init() {
 	gopath, _ := os.LookupEnv("GOPATH")
@@ -50,7 +50,7 @@ func main() {
 				var dest = CACHE_DIR + uri
 				if info, err := os.Stat(dest); err != nil || info == nil {
 					w.WriteHeader(http.StatusNotFound)
-					resp = []byte("not found")
+					resp = notFound
 					break
 				}
 				resp, err = os.ReadFile(dest)
@@ -58,18 +58,36 @@ func main() {
 					panic(err)
 				}
 			case strings.HasSuffix(uri, "/@latest"):
-				var dest = CACHE_DIR + strings.TrimSuffix(uri, "/@latest") + "/@v/list"
-				if info, err := os.Stat(dest); err != nil || info == nil {
+				var dest = CACHE_DIR + strings.TrimSuffix(uri, "/@latest")
+				info, err := os.Stat(dest + "/@v/list")
+				if err != nil || info == nil {
 					w.WriteHeader(http.StatusNotFound)
-					resp = []byte("not found")
+					resp = notFound
 					break
 				}
-				b, err := os.ReadFile(dest)
+				b, err := os.ReadFile(dest + "/@v/list")
 				if err != nil {
 					panic(err)
 				}
-				bs := bytes.Split(bytes.TrimSuffix(b, []byte{'\n'}), []byte{'\n'})
-				resp = bs[len(bs)-1]
+				vs := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+				var ver string
+				for i := len(vs) - 1; i >= 0; i-- {
+					info, err := os.Stat(dest + "/@v/" + vs[i] + ".info")
+					if err != nil || info == nil {
+						continue
+					}
+					ver = vs[i]
+					break
+				}
+				if ver == "" {
+					w.WriteHeader(http.StatusNotFound)
+					resp = notFound
+				} else {
+					resp, err = os.ReadFile(dest + "/@v/" + ver + ".info")
+					if err != nil {
+						panic(err)
+					}
+				}
 			default:
 				w.WriteHeader(http.StatusNotFound)
 			}
