@@ -73,20 +73,19 @@ func main() {
 				var ver string
 				for i := len(vs) - 1; i >= 0; i-- {
 					info, err := os.Stat(dest + "/@v/" + vs[i] + ".info")
-					if err != nil || info == nil {
-						continue
+					if err == nil && info != nil {
+						ver = vs[i]
+						break
 					}
-					ver = vs[i]
-					break
 				}
-				if ver == "" {
+				if ver != "" {
 					w.WriteHeader(http.StatusNotFound)
 					resp = notFound
-				} else {
-					resp, err = os.ReadFile(dest + "/@v/" + ver + ".info")
-					if err != nil {
-						panic(err)
-					}
+					break
+				}
+				resp, err = os.ReadFile(dest + "/@v/" + ver + ".info")
+				if err != nil {
+					panic(err)
 				}
 			default:
 				w.WriteHeader(http.StatusNotFound)
